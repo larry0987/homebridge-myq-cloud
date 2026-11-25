@@ -7,6 +7,36 @@ const os = require('node:os');
 const path = require('node:path');
 const { MyQClient, stateToCurrentDoorState, ENDPOINTS } = require('../src/myq-client');
 const { commandPollIntervalSeconds, shouldStopCommandTracking } = require('../src/index');
+const { createAuthorizationRequest, extractAuthorizationCode, readAppCheckProfile } = require('../src/myq-auth');
+
+test('creates a MyQ PKCE authorization request without putting the verifier in the URL', () => {
+  const authorization = createAuthorizationRequest();
+  const url = new URL(authorization.url);
+  assert.equal(url.origin, 'https://partner-identity.myq-cloud.com');
+  assert.equal(url.searchParams.get('redirect_uri'), 'com.myqops://android');
+  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(url.searchParams.has('code_verifier'), false);
+  assert.equal(url.searchParams.get('state'), authorization.state);
+  assert.equal(url.searchParams.get('code_challenge').length, 43);
+  assert.equal(authorization.verifier.length, 43);
+});
+
+test('validates the MyQ callback state, issuer, and redirect target', () => {
+  const authorization = createAuthorizationRequest();
+  const callback = new URL('com.myqops://android');
+  callback.searchParams.set('code', 'one-time-code');
+  callback.searchParams.set('state', authorization.state);
+  callback.searchParams.set('iss', 'https://partner-identity.myq-cloud.com');
+  assert.equal(extractAuthorizationCode(callback.href, authorization.state), 'one-time-code');
+  assert.throws(() => extractAuthorizationCode(callback.href, 'wrong-state'), /state did not match/);
+  assert.throws(() => extractAuthorizationCode(callback.href.replace('com.myqops:', 'https:'), authorization.state), /not the MyQ app callback/);
+});
+
+test('decodes the reference integration App Check profile into required fields', () => {
+  const profile = readAppCheckProfile();
+  assert.deepEqual(Object.keys(profile).sort(), ['apiKey', 'application', 'certificate', 'debugToken', 'packageName', 'project']);
+  assert.ok(Object.values(profile).every((value) => typeof value === 'string' && value.length > 0));
+});
 
 test('uses short polling intervals after a door command, then caps at five seconds', () => {
   assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map(commandPollIntervalSeconds), [1, 2, 3, 4, 5, 5, 5]);
