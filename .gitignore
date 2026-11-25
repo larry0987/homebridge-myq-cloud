@@ -1,0 +1,9 @@
+node_modules/
+npm-debug.log*
+myq-cloud-token.json
+.DS_Store
+outputs/
+work/
+myq.tar
+*.tgz
+
