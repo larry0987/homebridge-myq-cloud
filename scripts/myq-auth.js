@@ -1,16 +1,13 @@
 #!/usr/bin/env node
 'use strict';
 
-const { createInterface } = require('node:readline');
 const { createAuthorizationRequest, exchangeAuthorizationCode } = require('../src/myq-auth');
 
 async function readCallbackUrl() {
-  process.stderr.write('\nPaste the full com.myqops://android callback URL (input is hidden):\n');
   if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
-    const readline = createInterface({ input: process.stdin, output: process.stderr });
-    try { return await readline.question('Callback URL: '); } finally { readline.close(); }
+    throw new Error('Run this command in an interactive terminal so the one-time callback URL can be entered without echo.');
   }
-
+  process.stderr.write('\nPaste the full com.myqops://android callback URL (input is hidden):\n');
   const input = process.stdin;
   input.setEncoding('utf8');
   input.setRawMode(true);
