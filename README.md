@@ -34,7 +34,7 @@ npm run myq:login
 
 Open the MyQ authorization link printed by the helper, sign in on MyQ's website, and finish any email/SMS verification. When MyQ redirects to `com.myqops://android`, copy the complete URL from the browser address bar and paste it into the waiting terminal prompt. If the browser says it cannot open the app link, copy the address anyway. The helper checks the OAuth state and issuer, exchanges the one-time code with PKCE, and prints the refresh token. Paste that token into the Homebridge plugin configuration. The helper does not save the token to disk; keep it private and do not share the callback URL or token.
 
-This uses MyQ's undocumented OAuth flow and the Firebase App Check registration used by the reference integration. MyQ can change or block this flow without notice. The helper communicates with MyQ Identity and Firebase App Check; it does not send credentials to Home Assistant or to a Homebridge server.
+This uses MyQ's undocumented OAuth flow and the shared, obfuscated Firebase App Check profile used by the reference integration. That profile is not tied to your MyQ account; your refresh token and password are never included in the project files. MyQ can change or block this flow without notice. The helper communicates with MyQ Identity and Firebase App Check; it does not send credentials to Home Assistant or to a Homebridge server.
 
 ## Configuration
 
