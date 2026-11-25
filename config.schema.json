@@ -1,0 +1,22 @@
+{
+  "pluginAlias": "MyQCloud",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "MyQ cloud integration for garage doors.",
+  "footerDisplay": "Requires an OAuth refresh token from a MyQ residential account.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": { "title": "Platform name", "type": "string", "default": "MyQ" },
+      "refreshToken": { "title": "OAuth refresh token", "type": "string", "required": true },
+      "pollIntervalSeconds": { "title": "Polling interval (seconds)", "type": "integer", "minimum": 60, "default": 120 },
+      "showOfflineDoors": { "title": "Show offline doors", "type": "boolean", "default": true }
+    },
+    "required": ["refreshToken"]
+  },
+  "layout": [
+    { "type": "fieldset", "title": "Account", "items": ["refreshToken"] },
+    { "type": "fieldset", "title": "Polling", "items": ["pollIntervalSeconds", "showOfflineDoors"] }
+  ]
+}
+
