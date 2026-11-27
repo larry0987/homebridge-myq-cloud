@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { MyQClient, stateToCurrentDoorState, ENDPOINTS } = require('../src/myq-client');
+const { MyQClient, MyQRequestError, retryAfterMilliseconds, stateToCurrentDoorState, ENDPOINTS } = require('../src/myq-client');
 const { commandPollIntervalSeconds, shouldStopCommandTracking } = require('../src/index');
 const { createAuthorizationRequest, extractAuthorizationCode, readAppCheckProfile } = require('../src/myq-auth');
 
@@ -65,6 +65,34 @@ test('uses current MyQ v6 residential service endpoints', () => {
   assert.match(ENDPOINTS.doors, /account-devices-gdo\.myq-cloud\.com\/api\/v6\.0\/accounts$/);
 });
 
+test('parses MyQ Retry-After values in seconds or HTTP date form', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  assert.equal(retryAfterMilliseconds(new Response(null, { headers: { 'Retry-After': '12' } }), now), 12000);
+  assert.equal(retryAfterMilliseconds(new Response(null, { headers: { 'Retry-After': 'Thu, 01 Jan 2026 00:00:12 GMT' } }), now), 12000);
+});
+
+test('retries transient MyQ GET failures but does not retry commands', async () => {
+  const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'myq-retry-'));
+  await fs.writeFile(path.join(storage, 'myq-cloud-token.json'), JSON.stringify({ accessToken: 'access', refreshToken: 'refresh', expiresAt: Date.now() + 3600000 }));
+  let calls = 0;
+  const fakeFetch = async (_url, options = {}) => {
+    calls += 1;
+    if (options.method === 'PUT') return new Response(null, { status: 503 });
+    return calls < 3 ? new Response(null, { status: 503 }) : Response.json({ accounts: [] });
+  };
+  const client = new MyQClient('configured', storage, { warn() {} }, fakeFetch, async () => {});
+  try {
+    const response = await client.request(ENDPOINTS.accounts);
+    assert.equal(response.status, 200);
+    assert.equal(calls, 3);
+    calls = 0;
+    await assert.rejects(client.request(ENDPOINTS.accounts, { method: 'PUT' }), MyQRequestError);
+    assert.equal(calls, 1);
+  } finally {
+    await fs.rm(storage, { recursive: true, force: true });
+  }
+});
+
 test('discovers garage doors and sends the documented open command', async () => {
   const storage = await fs.mkdtemp(path.join(os.tmpdir(), 'myq-plugin-'));
   await fs.writeFile(path.join(storage, 'myq-cloud-token.json'), JSON.stringify({ accessToken: 'access', refreshToken: 'rotated', expiresAt: Date.now() + 3600000 }));
@@ -88,4 +116,3 @@ test('discovers garage doors and sends the documented open command', async () =>
     await fs.rm(storage, { recursive: true, force: true });
   }
 });
-

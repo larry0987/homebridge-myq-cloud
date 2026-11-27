@@ -18,21 +18,22 @@ class MyQPlatform {
     this.timer = null;
     this.commandTrackers = new Map();
     this.commandPollStep = 0;
+    this.consecutiveFailures = 0;
+    this.lastSuccessfulPoll = null;
+    this.lastFailureAt = null;
     if (!this.config.refreshToken) {
       this.log.error('MyQ requires an OAuth refreshToken. See the plugin README for setup.');
       return;
     }
     this.client = new MyQClient(this.config.refreshToken, api.user.storagePath(), log);
-    api.on('didFinishLaunching', () => this.refresh().catch((error) => {
-      this.log.error(`Initial MyQ refresh failed: ${error.message}`);
-      this.scheduleRetry();
-    }));
+    api.on('didFinishLaunching', () => this.refresh().catch((error) => this.recordPollFailure(error)));
   }
 
   configureAccessory(accessory) { this.accessories.set(accessory.UUID, accessory); }
 
   async refresh() {
     if (!this.client) return;
+    const pollStartedAt = Date.now();
     const doors = await this.client.getDoors();
     const found = new Set();
     for (const door of doors) {
@@ -58,7 +59,33 @@ class MyQPlatform {
         this.accessories.delete(uuid);
       }
     }
+    const previousFailures = this.consecutiveFailures;
+    const recoveredAt = Date.now();
+    this.consecutiveFailures = 0;
+    this.lastSuccessfulPoll = recoveredAt;
+    if (previousFailures > 0) {
+      this.log.info(`MyQ connection recovered after ${previousFailures} failed poll(s); discovered ${doors.length} garage door(s). Last failure was at ${new Date(this.lastFailureAt).toLocaleString()}; latest successful poll is ${new Date(recoveredAt).toLocaleString()}.`);
+    } else if (!this.loggedInitialHealth) {
+      this.loggedInitialHealth = true;
+      this.log.info(`MyQ connection ready; discovered ${doors.length} garage door(s).`);
+    }
     this.schedule();
+  }
+
+  recordPollFailure(error) {
+    this.consecutiveFailures += 1;
+    this.lastFailureAt = Date.now();
+    const retryDelayMs = this.retryDelayMs(error);
+    const lastSuccess = this.lastSuccessfulPoll
+      ? ` Last successful poll: ${new Date(this.lastSuccessfulPoll).toLocaleString()}.`
+      : ' No successful poll has completed yet.';
+    this.log.warn(`MyQ polling failed (${error.message}). Retry ${this.consecutiveFailures} in ${Math.ceil(retryDelayMs / 1000)} seconds.${lastSuccess}`);
+    this.scheduleRetry(retryDelayMs);
+  }
+
+  retryDelayMs(error) {
+    const backoff = Math.min(30000 * (2 ** Math.min(this.consecutiveFailures - 1, 5)), 15 * 60 * 1000);
+    return Math.max(error.retryAfterMs || 0, backoff);
   }
 
   bindDoor(accessory, door) {
@@ -128,19 +155,13 @@ class MyQPlatform {
       this.commandPollStep = Math.min(this.commandPollStep + 1, COMMAND_POLL_INTERVALS_SECONDS.length - 1);
     }
     if (interval === undefined) interval = Math.max(60, Number(this.config.pollIntervalSeconds) || 120) * 1000;
-    this.timer = setTimeout(() => this.refresh().catch((error) => {
-      this.log.warn(`MyQ polling failed: ${error.message}`);
-      this.scheduleRetry();
-    }), interval);
+    this.timer = setTimeout(() => this.refresh().catch((error) => this.recordPollFailure(error)), interval);
     this.timer.unref?.();
   }
 
-  scheduleRetry() {
+  scheduleRetry(delayMs = 240000) {
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.refresh().catch((error) => {
-      this.log.warn(`MyQ polling retry failed: ${error.message}`);
-      this.scheduleRetry();
-    }), 240000);
+    this.timer = setTimeout(() => this.refresh().catch((error) => this.recordPollFailure(error)), delayMs);
     this.timer.unref?.();
   }
 }
@@ -160,4 +181,3 @@ module.exports.MyQPlatform = MyQPlatform;
 module.exports.PLUGIN_NAME = PLUGIN_NAME;
 module.exports.commandPollIntervalSeconds = commandPollIntervalSeconds;
 module.exports.shouldStopCommandTracking = shouldStopCommandTracking;
-

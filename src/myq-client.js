@@ -16,10 +16,39 @@ const ENDPOINTS = {
   doors: 'https://account-devices-gdo.myq-cloud.com/api/v6.0/accounts',
 };
 
+class MyQRequestError extends Error {
+  constructor(message, { status, retryAfterMs } = {}) {
+    super(message);
+    this.name = 'MyQRequestError';
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function retryAfterMilliseconds(response, now = Date.now()) {
+  const value = response.headers?.get?.('retry-after');
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.max(0, timestamp - now) : null;
+}
+
+function retryDelay(response, attempt) {
+  const requested = retryAfterMilliseconds(response);
+  if (requested !== null) return Math.min(requested, 15 * 60 * 1000);
+  return Math.min(1000 * (2 ** attempt), 30000);
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 class MyQClient {
-  constructor(refreshToken, storagePath, log = console, fetchImpl = fetch) {
+  constructor(refreshToken, storagePath, log = console, fetchImpl = fetch, sleepImpl = wait) {
     this.refreshToken = refreshToken;
     this.fetch = fetchImpl;
+    this.sleep = sleepImpl;
     this.log = log;
     this.tokenPath = path.join(storagePath, 'myq-cloud-token.json');
     this.token = null;
@@ -51,7 +80,13 @@ class MyQClient {
       body: new URLSearchParams({ client_id: CLIENT_ID, scope: SCOPE, redirect_uri: REDIRECT_URI, grant_type: 'refresh_token', refresh_token: this.refreshToken }),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`MyQ token refresh returned HTTP ${response.status}; reauthorize the account and replace refreshToken`);
+    if (!response.ok) {
+      if (response.status === 429) {
+        throw new MyQRequestError('MyQ token service rate limited the request', { status: response.status, retryAfterMs: retryAfterMilliseconds(response) });
+      }
+      if (response.status >= 500) throw new MyQRequestError(`MyQ token service returned HTTP ${response.status}`, { status: response.status, retryAfterMs: retryAfterMilliseconds(response) });
+      throw new MyQRequestError(`MyQ token refresh returned HTTP ${response.status}; reauthorize the account and replace refreshToken`, { status: response.status });
+    }
     if (!payload.access_token || typeof payload.expires_in !== 'number') throw new Error('MyQ token refresh response was incomplete');
     this.token = payload.access_token;
     if (payload.refresh_token) this.refreshToken = payload.refresh_token;
@@ -62,13 +97,31 @@ class MyQClient {
 
   async request(url, options = {}) {
     const token = await this.accessToken();
-    const response = await this.fetch(url, { ...options, headers: { Accept: 'application/json', 'App-Version': APP_VERSION, Authorization: `Bearer ${token}`, BrandId: BRAND_ID, 'User-Agent': USER_AGENT, ...options.headers } });
-    if (response.status === 401 || response.status === 403) {
-      this.token = null;
-      throw new Error(`MyQ returned HTTP ${response.status}; account authorization may have expired or been restricted`);
+    const requestOptions = { ...options, headers: { Accept: 'application/json', 'App-Version': APP_VERSION, Authorization: `Bearer ${token}`, BrandId: BRAND_ID, 'User-Agent': USER_AGENT, ...options.headers } };
+    const canRetry = (options.method || 'GET').toUpperCase() === 'GET';
+    for (let attempt = 0; ; attempt += 1) {
+      let response;
+      try {
+        response = await this.fetch(url, requestOptions);
+      } catch (error) {
+        if (!canRetry || attempt >= 2) throw new MyQRequestError(`MyQ network request failed: ${error.message}`);
+        await this.sleep(Math.min(1000 * (2 ** attempt), 30000));
+        continue;
+      }
+      if (response.status === 401 || response.status === 403) {
+        this.token = null;
+        throw new MyQRequestError(`MyQ returned HTTP ${response.status}; account authorization may have expired or been restricted`, { status: response.status });
+      }
+      if ((response.status === 429 || response.status >= 500) && canRetry && attempt < 2) {
+        await this.sleep(retryDelay(response, attempt));
+        continue;
+      }
+      if (!response.ok) {
+        const retryAfterMs = retryAfterMilliseconds(response);
+        throw new MyQRequestError(`MyQ request returned HTTP ${response.status}${response.status === 429 ? '; rate limit reached' : ''}`, { status: response.status, retryAfterMs });
+      }
+      return response;
     }
-    if (!response.ok) throw new Error(`MyQ request returned HTTP ${response.status}`);
-    return response;
   }
 
   async getDoors() {
@@ -111,5 +164,4 @@ function stateToCurrentDoorState(state, values) {
   return Object.hasOwn(mapping, state) ? mapping[state] : values.UNKNOWN;
 }
 
-module.exports = { MyQClient, stateToCurrentDoorState, ENDPOINTS };
-
+module.exports = { MyQClient, MyQRequestError, retryAfterMilliseconds, stateToCurrentDoorState, ENDPOINTS };

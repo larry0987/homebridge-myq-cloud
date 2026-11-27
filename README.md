@@ -12,15 +12,16 @@ The plugin saves access tokens and any rotated refresh token to `myq-cloud-token
 
 ## Install
 
-For local development, from this directory run:
+Install the latest release from the Homebridge server terminal (Node.js 20 or newer):
 
 ```sh
-npm install
-npm test
-npm link
+cd /tmp
+curl -L -o homebridge-myq-cloud-0.4.0.tgz https://github.com/larry0987/homebridge-myq-cloud/releases/download/v0.4.0/homebridge-myq-cloud-0.4.0.tgz
+sudo npm install -g /tmp/homebridge-myq-cloud-0.4.0.tgz
+sudo hb-service restart
 ```
 
-Then install/enable **Homebridge MyQ Cloud** from the Homebridge UI or add the platform configuration below and restart Homebridge. For a published package, install it with `npm install -g homebridge-myq-cloud`.
+Then add or configure **Homebridge MyQ Cloud** in Homebridge Config UI X and enter your MyQ refresh token.
 
 ## Get a MyQ refresh token without Home Assistant
 
@@ -50,7 +51,9 @@ Homebridge Config UI X configuration uses the plugin's platform form. In JSON co
 }
 ```
 
-Do not commit this configuration or expose the refresh token in logs. Minimum regular polling interval is one minute; the default is two minutes. After an accepted open/close command, the plugin checks cloud status after 1, 2, 3, 4, and then every 5 seconds. It keeps this faster polling for at least 30 seconds and up to 60 seconds while waiting for MyQ to report the requested state, then returns to the configured regular interval. HomeKit only reports movement after MyQ confirms it in cloud status.
+Do not commit this configuration or expose the refresh token in logs. Minimum regular polling interval is one minute; the default is two minutes. A shorter interval can make routine HomeKit status updates arrive sooner, but increases requests to MyQ's cloud service and may make rate limiting more likely. After an accepted open/close command, the plugin checks cloud status after 1, 2, 3, 4, and then every 5 seconds. It keeps this faster polling for at least 30 seconds and up to 60 seconds while waiting for MyQ to report the requested state, then returns to the configured regular interval. HomeKit only reports movement after MyQ confirms it in cloud status.
+
+The plugin retries temporary network and server errors during read-only status requests, honoring MyQ's `Retry-After` response when available. It does not automatically repeat open/close commands. During a service outage, it keeps the last accessory state and reports failures and the last successful poll time in the Homebridge log; it logs when the MyQ connection recovers.
 
 ## Behavior and limitations
 
@@ -63,5 +66,4 @@ Do not commit this configuration or expose the refresh token in logs. Minimum re
 
 ## Development
 
-Run `npm test` with Node.js 20 or newer. The tests cover state translation, endpoint selection, and command polling timing; cloud account access requires a valid MyQ credential and is not exercised by the local test suite.
-
+Run `npm test` with Node.js 20 or newer. GitHub Actions runs the tests and package checks on Node.js 20, 22, and 24 for each push and pull request. The tests cover state translation, endpoint selection, command polling timing, and transient request handling; cloud account access requires a valid MyQ credential and is not exercised by the local test suite.
