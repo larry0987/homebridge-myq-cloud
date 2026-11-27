@@ -16,8 +16,8 @@ For Homebridge installations that use `/var/lib/homebridge` as their plugin dire
 
 ```sh
 cd /tmp
-curl -L -o homebridge-myq-cloud-0.4.0.tgz https://github.com/larry0987/homebridge-myq-cloud/releases/download/v0.4.0/homebridge-myq-cloud-0.4.0.tgz
-npm install --prefix /var/lib/homebridge/ /tmp/homebridge-myq-cloud-0.4.0.tgz
+curl -L -o homebridge-myq-cloud-0.5.0.tgz https://github.com/larry0987/homebridge-myq-cloud/releases/download/v0.5.0/homebridge-myq-cloud-0.5.0.tgz
+npm install --prefix /var/lib/homebridge/ /tmp/homebridge-myq-cloud-0.5.0.tgz
 sudo hb-service restart
 ```
 
@@ -59,6 +59,8 @@ The plugin retries temporary network and server errors during read-only status r
 
 - Requires a MyQ residential account with garage openers visible to the official MyQ service. This is a cloud integration; Homebridge needs internet access.
 - HomeKit presents cloud-reported open, closed, opening, closing, and stopped states. Unknown status remains unknown, and MyQ offline doors are unavailable to command.
+- HomeKit accessory details use MyQ-reported manufacturer, model, model number, hardware serial number, and firmware version when available. When manufacturer/model are absent, recognized MyQ hardware serial prefixes provide a best-effort brand and product fallback; other devices show a generic opener description. Missing serial/firmware values are marked as not reported. Internal MyQ IDs are never presented as hardware serial numbers.
+- HomeKit accessory details use MyQ-reported manufacturer, model, model number, hardware serial number, and firmware version when available. When manufacturer/model are absent, recognized MyQ hardware serial prefixes provide a best-effort brand and product fallback; other devices show a generic opener description. Missing serial/firmware values are marked as not reported. Internal MyQ IDs are never presented as hardware serial numbers.
 - Device/account discovery follows MyQ's current `accounts`, `Devices`, and `door_openers/{serial}/{open|close}` API families and API versions. These are private, reverse-engineered interfaces.
 - The helper relies on MyQ's browser sign-in for credentials and MFA. Camera feeds, standalone lights, and HomeKit sensors are not included.
 - Opening or closing a garage door can cause injury or property damage. Keep the doorway clear and maintain the opener's safety sensors. This plugin does not bypass MyQ or opener safety controls.
