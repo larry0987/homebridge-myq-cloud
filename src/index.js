@@ -50,6 +50,7 @@ class MyQPlatform {
       }
       accessory.context.door = door;
       this.bindDoor(accessory, door);
+      this.updateAccessoryInformation(accessory, door);
       this.updateCharacteristics(accessory, door);
     }
     this.updateCommandTrackers(doors);
@@ -119,6 +120,25 @@ class MyQPlatform {
     accessory.displayName = door.name || door.serial_number;
   }
 
+  updateAccessoryInformation(accessory, door) {
+    const { Service, Characteristic } = this.api.hap;
+    const info = accessory.getService(Service.AccessoryInformation)
+      || accessory.addService(Service.AccessoryInformation);
+    const modelParts = [door.model, door.model_number]
+      .filter((value, index, values) => value && values.indexOf(value) === index);
+    const values = [
+      [Characteristic.Manufacturer, door.manufacturer || 'Unknown manufacturer'],
+      [Characteristic.Model, modelParts.join(' / ') || 'Garage Door Opener'],
+      // Do not use MyQ's internal device/account IDs as a substitute for the
+      // physical serial. An explicit unavailable value is safer than a false one.
+      [Characteristic.SerialNumber, door.serial_number || 'Not reported by MyQ'],
+      [Characteristic.FirmwareRevision, door.firmware || 'Not reported by MyQ'],
+    ];
+    for (const [characteristic, value] of values) {
+      if (characteristic) info.getCharacteristic(characteristic).updateValue(value);
+    }
+  }
+
   updateCharacteristics(accessory, door) {
     const { Service, Characteristic } = this.api.hap;
     const service = accessory.getService(Service.GarageDoorOpener);
@@ -181,3 +201,4 @@ module.exports.MyQPlatform = MyQPlatform;
 module.exports.PLUGIN_NAME = PLUGIN_NAME;
 module.exports.commandPollIntervalSeconds = commandPollIntervalSeconds;
 module.exports.shouldStopCommandTracking = shouldStopCommandTracking;
+
