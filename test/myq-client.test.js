@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { MyQClient, MyQRequestError, retryAfterMilliseconds, stateToCurrentDoorState, ENDPOINTS } = require('../src/myq-client');
+const { MyQClient, MyQRequestError, retryAfterMilliseconds, stateToCurrentDoorState, deviceMetadata, hardwareInfoFromSerial, ENDPOINTS } = require('../src/myq-client');
 const { commandPollIntervalSeconds, shouldStopCommandTracking } = require('../src/index');
 const { createAuthorizationRequest, extractAuthorizationCode, readAppCheckProfile } = require('../src/myq-auth');
 
@@ -59,6 +59,35 @@ test('maps MyQ movement and unknown states to HomeKit', () => {
   assert.equal(stateToCurrentDoorState('not-a-state', values), 99);
 });
 
+test('uses MyQ hardware metadata and decodes manufacturer/model only as a fallback', () => {
+  assert.deepEqual(deviceMetadata({
+    serial_number: 'GW0B12345678',
+    manufacturer: 'Vendor Name',
+    model: 'Opener Model',
+    model_number: 'ABC-123',
+    firmware_version: '3.4.5',
+  }), {
+    manufacturer: 'Vendor Name',
+    model: 'Opener Model',
+    model_number: 'ABC-123',
+    firmware: '3.4.5',
+    serial_number: 'GW0B12345678',
+  });
+  assert.deepEqual(hardwareInfoFromSerial('GW0B12345678'), { manufacturer: 'LiftMaster', model: 'Wi-Fi Garage Door Opener (AC)' });
+  assert.deepEqual(deviceMetadata({ serial_number: 'GW09ABCDEF12' }), {
+    manufacturer: 'Chamberlain',
+    model: 'Wi-Fi Garage Door Opener (DC with battery backup)',
+    model_number: null,
+    firmware: null,
+    serial_number: 'GW09ABCDEF12',
+  });
+});
+
+test('never treats internal MyQ identifiers as hardware serial numbers', () => {
+  assert.equal(deviceMetadata({ id: 'internal-device-id', device_id: 'another-id' }).serial_number, null);
+  assert.equal(hardwareInfoFromSerial('internal-device-id'), null);
+});
+
 test('uses current MyQ v6 residential service endpoints', () => {
   assert.match(ENDPOINTS.accounts, /accounts\.myq-cloud\.com\/api\/v6\.0\/accounts$/);
   assert.match(ENDPOINTS.devices, /devices\.myq-cloud\.com\/api\/v6\.2\/Accounts$/);
@@ -100,7 +129,7 @@ test('discovers garage doors and sends the documented open command', async () =>
   const fakeFetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
     if (String(url) === ENDPOINTS.accounts) return Response.json({ accounts: [{ id: 'acct-1' }] });
-    if (String(url).endsWith('/acct-1/Devices')) return Response.json({ items: [{ device_family: 'garagedoor', serial_number: 'door-1', name: 'Garage', state: { door_state: 'closed', online: true } }, { device_family: 'camera', serial_number: 'camera-1' }] });
+    if (String(url).endsWith('/acct-1/Devices')) return Response.json({ items: [{ device_family: 'garagedoor', serial_number: 'door-1', name: 'Garage', manufacturer: 'Chamberlain', model: 'Wi-Fi Opener', model_number: 'B2211T', firmware_version: '1.2.3', state: { door_state: 'closed', online: true } }, { device_family: 'camera', serial_number: 'camera-1' }] });
     return new Response(null, { status: 204 });
   };
   try {
@@ -108,6 +137,10 @@ test('discovers garage doors and sends the documented open command', async () =>
     const doors = await client.getDoors();
     assert.equal(doors.length, 1);
     assert.equal(doors[0].name, 'Garage');
+    assert.equal(doors[0].manufacturer, 'Chamberlain');
+    assert.equal(doors[0].model, 'Wi-Fi Opener');
+    assert.equal(doors[0].model_number, 'B2211T');
+    assert.equal(doors[0].firmware, '1.2.3');
     await client.command(doors[0], 'open');
     assert.equal(calls.at(-1).options.method, 'PUT');
     assert.match(calls.at(-1).url, /door_openers\/door-1\/open$/);
@@ -116,3 +149,4 @@ test('discovers garage doors and sends the documented open command', async () =>
     await fs.rm(storage, { recursive: true, force: true });
   }
 });
+
