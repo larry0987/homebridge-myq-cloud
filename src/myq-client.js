@@ -16,6 +16,69 @@ const ENDPOINTS = {
   doors: 'https://account-devices-gdo.myq-cloud.com/api/v6.0/accounts',
 };
 
+// MyQ encodes the device brand and product class in characters 3–4 of many
+// 12-character gateway/GDO serial numbers. This is used only as a fallback when
+// the API doesn't return explicit manufacturer/model fields.
+const SERIAL_HARDWARE_INFO = {
+  '00': ['Chamberlain', 'Ethernet Gateway'],
+  '01': ['LiftMaster', 'Ethernet Gateway'],
+  '02': ['Craftsman', 'Ethernet Gateway'],
+  '03': ['Chamberlain', 'Wi-Fi Hub'],
+  '04': ['LiftMaster', 'Wi-Fi Hub'],
+  '05': ['Craftsman', 'Wi-Fi Hub'],
+  '08': ['LiftMaster', 'Wi-Fi Garage Door Opener (DC with battery backup)'],
+  '09': ['Chamberlain', 'Wi-Fi Garage Door Opener (DC with battery backup)'],
+  '0A': ['Chamberlain', 'Wi-Fi Garage Door Opener (AC)'],
+  '0B': ['LiftMaster', 'Wi-Fi Garage Door Opener (AC)'],
+  '0C': ['Craftsman', 'Wi-Fi Garage Door Opener (AC)'],
+  '0D': ['myQ', 'Replacement Logic Board (AC)'],
+  '0E': ['Chamberlain', 'Wi-Fi Garage Door Opener (AC, 3/4 HP)'],
+  '0F': ['LiftMaster', 'Wi-Fi Garage Door Opener (AC, 3/4 HP)'],
+  '10': ['Craftsman', 'Wi-Fi Garage Door Opener (AC, 3/4 HP)'],
+  '11': ['myQ', 'Replacement Logic Board (AC, 3/4 HP)'],
+  '12': ['Chamberlain', 'Wi-Fi Garage Door Opener (DC, 1.25 HP)'],
+  '13': ['LiftMaster', 'Wi-Fi Garage Door Opener (DC, 1.25 HP)'],
+  '14': ['Craftsman', 'Wi-Fi Garage Door Opener (DC, 1.25 HP)'],
+  '15': ['myQ', 'Replacement Logic Board (DC, 1.25 HP)'],
+  '20': ['Chamberlain', 'myQ Home Bridge'],
+  '21': ['LiftMaster', 'myQ Home Bridge'],
+  '23': ['Chamberlain', 'Smart Garage Hub'],
+  '24': ['LiftMaster', 'Smart Garage Hub'],
+  '27': ['LiftMaster', 'Wi-Fi Wall Mount Opener'],
+  '28': ['LiftMaster Commercial', 'Wi-Fi Wall Mount Operator'],
+  '33': ['Chamberlain', 'Smart Garage Control'],
+  '34': ['LiftMaster', 'Smart Garage Control'],
+  '80': ['LiftMaster EU', 'Ethernet Gateway'],
+  '81': ['Chamberlain EU', 'Ethernet Gateway'],
+};
+
+function firstString(object, fields) {
+  for (const field of fields) {
+    const value = object?.[field];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function hardwareInfoFromSerial(serial) {
+  if (typeof serial !== 'string' || !/^GW[A-Z0-9]{10}$/i.test(serial)) return null;
+  const known = SERIAL_HARDWARE_INFO[serial.slice(2, 4).toUpperCase()];
+  return known ? { manufacturer: known[0], model: known[1] } : null;
+}
+
+function deviceMetadata(item) {
+  // Never fall back to item.id/device_id here: those are MyQ cloud identifiers,
+  // not a hardware serial number.
+  const serialNumber = firstString(item, ['serial_number', 'serialNumber', 'hardware_serial_number', 'hardwareSerialNumber']);
+  const decoded = hardwareInfoFromSerial(serialNumber);
+  const manufacturer = firstString(item, ['manufacturer', 'manufacturer_name', 'manufacturerName', 'brand']) || decoded?.manufacturer || 'Unknown manufacturer';
+  const model = firstString(item, ['model', 'model_name', 'modelName', 'device_model', 'product_name', 'productName']) || decoded?.model || 'Garage Door Opener';
+  const modelNumber = firstString(item, ['model_number', 'modelNumber', 'device_model_number']);
+  const firmware = firstString(item, ['firmware_version', 'firmwareVersion', 'firmware', 'software_version', 'softwareVersion', 'sw_version'])
+    || firstString(item.state, ['firmware_version', 'firmwareVersion', 'software_version', 'sw_version']);
+  return { manufacturer, model, model_number: modelNumber, firmware, serial_number: serialNumber };
+}
+
 class MyQRequestError extends Error {
   constructor(message, { status, retryAfterMs } = {}) {
     super(message);
@@ -133,10 +196,11 @@ class MyQClient {
       const items = (await (await this.request(endpoint)).json()).items;
       if (!Array.isArray(items)) throw new Error('MyQ returned no device list');
       for (const item of items) {
-        if (item.device_family === 'garagedoor' && item.serial_number) result.push({
+        const metadata = deviceMetadata(item);
+        if (item.device_family === 'garagedoor' && metadata.serial_number) result.push({
           account_id: account.id,
-          serial_number: item.serial_number,
-          name: item.name || item.serial_number,
+          ...metadata,
+          name: firstString(item, ['name']) || metadata.serial_number,
           state: item.state || {},
           online: typeof item.state?.online === 'boolean' ? item.state.online : null,
         });
@@ -164,4 +228,5 @@ function stateToCurrentDoorState(state, values) {
   return Object.hasOwn(mapping, state) ? mapping[state] : values.UNKNOWN;
 }
 
-module.exports = { MyQClient, MyQRequestError, retryAfterMilliseconds, stateToCurrentDoorState, ENDPOINTS };
+module.exports = { MyQClient, MyQRequestError, retryAfterMilliseconds, stateToCurrentDoorState, deviceMetadata, hardwareInfoFromSerial, ENDPOINTS };
+
