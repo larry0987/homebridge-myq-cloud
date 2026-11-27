@@ -12,16 +12,16 @@ The plugin saves access tokens and any rotated refresh token to `myq-cloud-token
 
 ## Install
 
-Install the latest release from the Homebridge server terminal (Node.js 20 or newer):
+For Homebridge installations that use `/var/lib/homebridge` as their plugin directory (including the standard Debian/Ubuntu package setup), install the latest release from the Homebridge server terminal (Node.js 20 or newer):
 
 ```sh
 cd /tmp
 curl -L -o homebridge-myq-cloud-0.4.0.tgz https://github.com/larry0987/homebridge-myq-cloud/releases/download/v0.4.0/homebridge-myq-cloud-0.4.0.tgz
-sudo npm install -g /tmp/homebridge-myq-cloud-0.4.0.tgz
+npm install --prefix /var/lib/homebridge/ /tmp/homebridge-myq-cloud-0.4.0.tgz
 sudo hb-service restart
 ```
 
-Then add or configure **Homebridge MyQ Cloud** in Homebridge Config UI X and enter your MyQ refresh token.
+Then add or configure **Homebridge MyQ Cloud** in Homebridge Config UI X and enter your MyQ refresh token. If your Homebridge installation uses a different plugin directory, replace `/var/lib/homebridge/` with that installation's plugin path.
 
 ## Get a MyQ refresh token without Home Assistant
 
@@ -67,3 +67,4 @@ The plugin retries temporary network and server errors during read-only status r
 ## Development
 
 Run `npm test` with Node.js 20 or newer. GitHub Actions runs the tests and package checks on Node.js 20, 22, and 24 for each push and pull request. The tests cover state translation, endpoint selection, command polling timing, and transient request handling; cloud account access requires a valid MyQ credential and is not exercised by the local test suite.
+
