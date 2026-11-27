@@ -1,6 +1,6 @@
 {
   "name": "homebridge-myq-cloud",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Homebridge platform for MyQ garage door openers using the MyQ residential cloud API",
   "main": "src/index.js",
   "bin": { "homebridge-myq-auth": "scripts/myq-auth.js" },
@@ -12,3 +12,4 @@
   "devDependencies": { "homebridge": "^1.8.0" },
   "files": ["src", "scripts", "config.schema.json", "README.md", "LICENSE"]
 }
+
