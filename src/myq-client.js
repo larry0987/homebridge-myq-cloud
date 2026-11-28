@@ -66,17 +66,46 @@ function hardwareInfoFromSerial(serial) {
   return known ? { manufacturer: known[0], model: known[1] } : null;
 }
 
-function deviceMetadata(item) {
-  // Never fall back to item.id/device_id here: those are MyQ cloud identifiers,
-  // not a hardware serial number.
+function deviceMetadata(item, parentHub = null) {
+  // Keep the virtual garage-door serial for MyQ commands and accessory identity.
   const serialNumber = firstString(item, ['serial_number', 'serialNumber', 'hardware_serial_number', 'hardwareSerialNumber']);
-  const decoded = hardwareInfoFromSerial(serialNumber);
-  const manufacturer = firstString(item, ['manufacturer', 'manufacturer_name', 'manufacturerName', 'brand']) || decoded?.manufacturer || 'Unknown manufacturer';
-  const model = firstString(item, ['model', 'model_name', 'modelName', 'device_model', 'product_name', 'productName']) || decoded?.model || 'Garage Door Opener';
-  const modelNumber = firstString(item, ['model_number', 'modelNumber', 'device_model_number']);
-  const firmware = firstString(item, ['firmware_version', 'firmwareVersion', 'firmware', 'software_version', 'softwareVersion', 'sw_version'])
-    || firstString(item.state, ['firmware_version', 'firmwareVersion', 'software_version', 'sw_version']);
-  return { manufacturer, model, model_number: modelNumber, firmware, serial_number: serialNumber };
+
+  // Virtual garage doors identify their physical hardware through parent_device_id.
+  const parentSerial = firstString(item, ['parent_device_id']);
+  const hardwareSerial = parentSerial || serialNumber;
+  const decoded = hardwareInfoFromSerial(hardwareSerial);
+
+  const manufacturer =
+    firstString(item, ['manufacturer', 'manufacturer_name', 'manufacturerName', 'brand'])
+    || firstString(parentHub, ['manufacturer', 'manufacturer_name', 'manufacturerName', 'brand'])
+    || decoded?.manufacturer
+    || 'Unknown manufacturer';
+
+  const model =
+    firstString(item, ['model', 'model_name', 'modelName', 'product_name', 'productName'])
+    || firstString(parentHub, ['model', 'model_name', 'modelName', 'product_name', 'productName'])
+    || decoded?.model
+    || firstString(item, ['device_model'])
+    || 'Garage Door Opener';
+
+  const modelNumber =
+    firstString(item, ['model_number', 'modelNumber', 'device_model_number'])
+    || firstString(parentHub, ['model_number', 'modelNumber', 'device_model_number']);
+
+  const firmware =
+    firstString(item, ['firmware_version', 'firmwareVersion', 'firmware', 'software_version', 'softwareVersion', 'sw_version'])
+    || firstString(item.state, ['firmware_version', 'firmwareVersion', 'firmware', 'software_version', 'sw_version'])
+    || firstString(parentHub, ['firmware_version', 'firmwareVersion', 'firmware', 'software_version', 'softwareVersion', 'sw_version'])
+    || firstString(parentHub?.state, ['firmware_version', 'firmwareVersion', 'firmware', 'software_version', 'sw_version']);
+
+  return {
+    manufacturer,
+    model,
+    model_number: modelNumber,
+    firmware,
+    serial_number: serialNumber,
+    hardware_serial_number: hardwareSerial,
+  };
 }
 
 class MyQRequestError extends Error {
@@ -195,8 +224,16 @@ class MyQClient {
       const endpoint = `${ENDPOINTS.devices}/${encodeURIComponent(account.id)}/Devices`;
       const items = (await (await this.request(endpoint)).json()).items;
       if (!Array.isArray(items)) throw new Error('MyQ returned no device list');
+      // Resolve parent hubs from this account's inventory before mapping virtual doors.
+      const devicesBySerial = new Map(
+        items
+          .map((item) => [firstString(item, ['serial_number', 'serialNumber']), item])
+          .filter(([serial]) => serial)
+      );
+
       for (const item of items) {
-        const metadata = deviceMetadata(item);
+        const parentHub = devicesBySerial.get(firstString(item, ['parent_device_id'])) || null;
+        const metadata = deviceMetadata(item, parentHub);
         if (item.device_family === 'garagedoor' && metadata.serial_number) result.push({
           account_id: account.id,
           ...metadata,

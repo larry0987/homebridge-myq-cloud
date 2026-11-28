@@ -131,7 +131,7 @@ class MyQPlatform {
       [Characteristic.Model, modelParts.join(' / ') || 'Garage Door Opener'],
       // Do not use MyQ's internal device/account IDs as a substitute for the
       // physical serial. An explicit unavailable value is safer than a false one.
-      [Characteristic.SerialNumber, door.serial_number || 'Not reported by MyQ'],
+      [Characteristic.SerialNumber, door.hardware_serial_number || door.serial_number || 'Not reported by MyQ'],
       [Characteristic.FirmwareRevision, door.firmware || 'Not reported by MyQ'],
     ];
     for (const [characteristic, value] of values) {

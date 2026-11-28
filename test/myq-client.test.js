@@ -72,6 +72,7 @@ test('uses MyQ hardware metadata and decodes manufacturer/model only as a fallba
     model_number: 'ABC-123',
     firmware: '3.4.5',
     serial_number: 'GW0B12345678',
+    hardware_serial_number: 'GW0B12345678',
   });
   assert.deepEqual(hardwareInfoFromSerial('GW0B12345678'), { manufacturer: 'LiftMaster', model: 'Wi-Fi Garage Door Opener (AC)' });
   assert.deepEqual(deviceMetadata({ serial_number: 'GW09ABCDEF12' }), {
@@ -80,6 +81,32 @@ test('uses MyQ hardware metadata and decodes manufacturer/model only as a fallba
     model_number: null,
     firmware: null,
     serial_number: 'GW09ABCDEF12',
+    hardware_serial_number: 'GW09ABCDEF12',
+  });
+});
+
+test('inherits physical hub identity and firmware for a virtual garage door', () => {
+  const door = {
+    device_family: 'garagedoor',
+    serial_number: 'CG08461867C5',
+    parent_device_id: 'GW230019F787',
+    device_model: 'virtualgaragedooropener',
+    state: { door_state: 'closed', online: true },
+  };
+  const hub = {
+    device_family: 'gateway',
+    serial_number: 'GW230019F787',
+    device_model: 'hub',
+    state: { firmware: '3.14' },
+  };
+
+  assert.deepEqual(deviceMetadata(door, hub), {
+    manufacturer: 'Chamberlain',
+    model: 'Smart Garage Hub',
+    model_number: null,
+    firmware: '3.14',
+    serial_number: 'CG08461867C5',
+    hardware_serial_number: 'GW230019F787',
   });
 });
 
@@ -129,7 +156,11 @@ test('discovers garage doors and sends the documented open command', async () =>
   const fakeFetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
     if (String(url) === ENDPOINTS.accounts) return Response.json({ accounts: [{ id: 'acct-1' }] });
-    if (String(url).endsWith('/acct-1/Devices')) return Response.json({ items: [{ device_family: 'garagedoor', serial_number: 'door-1', name: 'Garage', manufacturer: 'Chamberlain', model: 'Wi-Fi Opener', model_number: 'B2211T', firmware_version: '1.2.3', state: { door_state: 'closed', online: true } }, { device_family: 'camera', serial_number: 'camera-1' }] });
+    if (String(url).endsWith('/acct-1/Devices')) return Response.json({ items: [
+      { device_family: 'garagedoor', serial_number: 'CG08461867C5', parent_device_id: 'GW230019F787', name: 'Garage', device_model: 'virtualgaragedooropener', state: { door_state: 'closed', online: true } },
+      { device_family: 'gateway', serial_number: 'GW230019F787', device_model: 'hub', state: { firmware: '3.14', online: true } },
+      { device_family: 'camera', serial_number: 'camera-1' },
+    ] });
     return new Response(null, { status: 204 });
   };
   try {
@@ -138,12 +169,14 @@ test('discovers garage doors and sends the documented open command', async () =>
     assert.equal(doors.length, 1);
     assert.equal(doors[0].name, 'Garage');
     assert.equal(doors[0].manufacturer, 'Chamberlain');
-    assert.equal(doors[0].model, 'Wi-Fi Opener');
-    assert.equal(doors[0].model_number, 'B2211T');
-    assert.equal(doors[0].firmware, '1.2.3');
+    assert.equal(doors[0].model, 'Smart Garage Hub');
+    assert.equal(doors[0].model_number, null);
+    assert.equal(doors[0].firmware, '3.14');
+    assert.equal(doors[0].serial_number, 'CG08461867C5');
+    assert.equal(doors[0].hardware_serial_number, 'GW230019F787');
     await client.command(doors[0], 'open');
     assert.equal(calls.at(-1).options.method, 'PUT');
-    assert.match(calls.at(-1).url, /door_openers\/door-1\/open$/);
+    assert.match(calls.at(-1).url, /door_openers\/CG08461867C5\/open$/);
     assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer access');
   } finally {
     await fs.rm(storage, { recursive: true, force: true });
